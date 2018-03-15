@@ -202,7 +202,12 @@ int do_select(int n, fd_set_bits *fds, long *timeout)
 		inp = fds->in; outp = fds->out; exp = fds->ex;
 		rinp = fds->res_in; routp = fds->res_out; rexp = fds->res_ex;
 
-		for (i = 0; i < n; ++rinp, ++routp, ++rexp) {
+    //Yuanguo:  this is what I guess.
+    //     i = 0 - 63  means fd = 0,
+    //     i = 0 - 64  means fd = 1,
+    //     ...
+    //     that is to say, real fd = (i >> 6);
+		for (i = 0; i < n; ++rinp, ++routp, ++rexp) { //Yuanguo: for each fd ...  
 			unsigned long in, out, ex, all_bits, bit = 1, mask, j;
 			unsigned long res_in = 0, res_out = 0, res_ex = 0;
 			struct file_operations *f_op = NULL;
@@ -211,7 +216,7 @@ int do_select(int n, fd_set_bits *fds, long *timeout)
 			in = *inp++; out = *outp++; ex = *exp++;
 			all_bits = in | out | ex;
 			if (all_bits == 0) {
-				i += __NFDBITS;
+				i += __NFDBITS;  //Yuanguo: add 64, that's to skip current fd;
 				continue;
 			}
 
@@ -225,7 +230,7 @@ int do_select(int n, fd_set_bits *fds, long *timeout)
 					f_op = file->f_op;
 					mask = DEFAULT_POLLMASK;
 					if (f_op && f_op->poll)
-						mask = (*f_op->poll)(file, retval ? NULL : wait);
+						mask = (*f_op->poll)(file, retval ? NULL : wait); //Yuanguo: no wait here, just poll/ask "do you have any event?"
 					fput(file);
 					if ((mask & POLLIN_SET) && (in & bit)) {
 						res_in |= bit;
@@ -250,13 +255,18 @@ int do_select(int n, fd_set_bits *fds, long *timeout)
 				*rexp = res_ex;
 		}
 		wait = NULL;
-		if (retval || !__timeout || signal_pending(current))
+		if (retval || !__timeout || signal_pending(current)) //Yuanguo: there's any event || time out || there's pending signal,  then return.
 			break;
 		if(table.error) {
 			retval = table.error;
 			break;
 		}
-		__timeout = schedule_timeout(__timeout);
+
+    //Yuanguo: no any event, not time out, no pending signal, then sleep. if any event occurrs while I (current process) am sleeping, 
+    //         I will be waken up.  The code above  
+    //                mask = (*f_op->poll)(file, retval ? NULL : wait);
+    //         should have put me (current process) in the wait-queue of device drivers I'm interested in.
+		__timeout = schedule_timeout(__timeout);  
 	}
 	__set_current_state(TASK_RUNNING);
 
